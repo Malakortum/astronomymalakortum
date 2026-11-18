@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>เรียงดาวเคราะห์</title>
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@600;800&family=Pixelify+Sans:wght@700&family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#05071a;font-family:"Pixelify Sans","Kanit",Tahoma,sans-serif;color:#fff}
+  canvas{position:fixed;inset:0;width:100vw;height:100vh;image-rendering:pixelated;image-rendering:crisp-edges}
+  body::after{content:"";position:fixed;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(0,0,0,.18) 0 2px,transparent 2px 4px);z-index:5}
+  video{display:none}
+  .card{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:6;width:min(900px,90vw);max-height:92vh;overflow:auto;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;text-align:center;gap:14px;padding:26px;background:#1a1340;color:#fff;border:6px solid #fff;outline:6px solid #000;box-shadow:16px 16px 0 #000}
+  .card h1{margin:0;line-height:0}
+  .card h1 canvas{position:static;width:auto;height:auto}
+  .card p{font-size:clamp(17px,2vw,24px);margin:0;line-height:1.45}
+  .row{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;align-items:center}
+  button{font:inherit;font-family:"Kanit",Tahoma,sans-serif;font-size:clamp(18px,2.1vw,26px);padding:10px 24px;border:4px solid #000;border-radius:0;cursor:pointer;background:#ffcf33;color:#000;font-weight:800;box-shadow:inset -5px -5px 0 rgba(0,0,0,.3),inset 5px 5px 0 rgba(255,255,255,.5),6px 6px 0 #000}
+  button:active{transform:translate(4px,4px);box-shadow:inset 5px 5px 0 rgba(0,0,0,.3),2px 2px 0 #000}
+  button.blue{background:#4fd7ff} button.pink{background:#ff5fa2}
+  button.tog{font-size:clamp(15px,1.6vw,20px);padding:8px 16px;background:#c9c3e6;box-shadow:inset -4px -4px 0 rgba(0,0,0,.3),4px 4px 0 #000}
+  button.tog.on{background:#7be39a}
+  .card p,.label,.lbtitle,table{font-family:"Kanit",Tahoma,sans-serif}
+  button.small{font-size:18px;padding:8px 18px}
+  .label{font-weight:700;font-size:18px}
+  input{font:inherit;font-size:24px;padding:10px 14px;border:4px solid #000;border-radius:0;width:min(320px,60vw);background:#fff;color:#000;font-family:"Kanit",Tahoma,sans-serif}
+  table{border-collapse:collapse;font-size:clamp(15px,1.6vw,20px);min-width:min(460px,80vw)}
+  th,td{padding:4px 12px;border-bottom:2px dashed #5a4f9a}
+  th{border-bottom:4px solid #fff;color:#ffcf33}
+  tr.me td{background:#ffcf33;color:#000;font-weight:800}
+  .lbtitle{font-weight:700;font-size:20px;margin-top:4px}
+  .hidden{display:none!important}
+  #status{font-size:16px;color:#a9a2d6;font-family:"Kanit",Tahoma,sans-serif}
+</style>
+</head>
+<body>
+<video id="video" playsinline muted></video>
+<canvas id="c"></canvas>
+<canvas id="u"></canvas>
+
+<div id="start" class="card">
+  <h1>เรียงดาวเคราะห์</h1>
+  <p><b>โบกมือ</b> ไปแตะดาวเคราะห์เพื่อหยิบ แล้วพาไปวางในวงโคจรให้ถูกลำดับจากดวงอาทิตย์</p>
+  <div class="row">
+    <span class="label">ระดับ:</span>
+    <button id="lv1" class="tog on" onclick="setLevel(1)">ป.1–3 มีชื่อใบ้</button>
+    <button id="lv2" class="tog" onclick="setLevel(2)">ป.4–6 ไม่มีใบ้</button>
+  </div>
+  <div class="row">
+    <button class="blue" onclick="startGame('solo')">เล่นคนเดียว</button>
+    <button class="pink" onclick="startGame('duo')">แข่ง 2 คน</button>
+  </div>
+  <div id="status">กำลังเปิดกล้อง...</div>
+</div>
+
+<div id="end" class="card hidden">
+  <h1 id="endTitle"></h1>
+  <p id="endText"></p>
+  <div class="row">
+    <button class="blue" onclick="showStart()">กลับเมนู</button>
+  </div>
+</div>
+
+<script type="module">
+const canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
+const ucanvas = document.getElementById('u'), U = ucanvas.getContext('2d');
+const PX = 4, PXU = 2; // ขนาดพิกเซล: โลกเกม 4 เท่า, ตัวหนังสือ 2 เท่า
+const video = document.getElementById('video'), statusEl = document.getElementById('status');
+const INK = '#000', PAPER = '#1a1340', FONT = '"Pixelify Sans",Kanit,Tahoma,sans-serif';
+const P_COLORS = ['#ff5fa2', '#3fb6ff'], P_NAMES = ['ฝั่งซ้าย', 'ฝั่งขวา'];
+const DUO_LIMIT = 120;
+let W, H;
+
+const PLANETS = [
+  {n:'ดาวพุธ',      c1:'#d9d2c5', c2:'#7d746a', r:0.55, f:'ใกล้ดวงอาทิตย์ที่สุด โคจรรอบเร็วที่สุด ใช้แค่ 88 วัน'},
+  {n:'ดาวศุกร์',    c1:'#ffe3a3', c2:'#c9932f', r:0.8,  f:'ร้อนที่สุดในระบบสุริยะ ร้อนพอจะละลายตะกั่วได้'},
+  {n:'โลก',         c1:'#6fc3ff', c2:'#1f6fb8', r:0.85, land:true, f:'บ้านของเรา ดาวดวงเดียวที่รู้ว่ามีสิ่งมีชีวิต'},
+  {n:'ดาวอังคาร',  c1:'#ff9a6b', c2:'#b0401c', r:0.65, f:'ดาวเคราะห์สีแดง เพราะดินมีสนิมเหล็กเยอะ'},
+  {n:'ดาวพฤหัสบดี', c1:'#f3d2a8', c2:'#b9773f', r:1.45, bands:true, f:'ใหญ่ที่สุด ใส่โลกเข้าไปได้มากกว่า 1,000 ใบ'},
+  {n:'ดาวเสาร์',    c1:'#f7e3a6', c2:'#c9a24f', r:1.25, ring:true, f:'มีวงแหวนสวยที่สุด ทำจากน้ำแข็งและหิน'},
+  {n:'ดาวยูเรนัส',  c1:'#c9fbff', c2:'#5bbcc9', r:1.0,  f:'หมุนตะแคงข้าง เหมือนลูกบอลกลิ้งรอบดวงอาทิตย์'},
+  {n:'ดาวเนปจูน',  c1:'#7aa2ff', c2:'#2342b0', r:0.98, f:'ไกลที่สุด และมีลมแรงที่สุดในระบบสุริยะ'},
+];
+
+// ---------- state ----------
+let mode = 'solo', level = 1, state = 'menu', players = [], countdown = 0, lastT = 0, playT = 0;
+let particles = [], stars = [], banner = null;
+for (let i=0;i<140;i++) stars.push({x:Math.random(), y:Math.random(), s:Math.random()*2+0.5, p:Math.random()*6});
+
+function resize(){
+  W = innerWidth; H = innerHeight;
+  canvas.width = Math.ceil(W/PX); canvas.height = Math.ceil(H/PX);
+  ucanvas.width = Math.ceil(W/PXU); ucanvas.height = Math.ceil(H/PXU);
+  ctx.setTransform(1/PX,0,0,1/PX,0,0); U.setTransform(1/PXU,0,0,1/PXU,0,0);
+  ctx.imageSmoothingEnabled = false; U.imageSmoothingEnabled = false;
+  players.forEach(layoutPlayer);
+}
+addEventListener('resize', resize);
+
+// ---------- sound ----------
+let actx = null;
+function audio(){ if (!actx) try { actx = new (window.AudioContext||window.webkitAudioContext)(); } catch {} return actx; }
+function tone(f, d=0.15, type='sine', vol=0.18, delay=0){
+  const a = audio(); if (!a) return;
+  const t = a.currentTime + delay, o = a.createOscillator(), g = a.createGain();
+  o.type = type; o.frequency.setValueAtTime(f, t);
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + d);
+  o.connect(g).connect(a.destination); o.start(t); o.stop(t + d + 0.05);
+}
+const sfx = {
+  grab:  ()=> tone(440, 0.08, 'triangle', 0.12),
+  ok:    ()=>{ tone(660,0.1,'square',0.1); tone(990,0.18,'square',0.1,0.09); },
+  bad:   ()=> tone(170, 0.3, 'square', 0.08),
+  beep:  ()=> tone(520, 0.15, 'square', 0.1),
+  go:    ()=> tone(880, 0.35, 'square', 0.12),
+  win:   ()=> [523,659,784,1046,1318].forEach((f,i)=>tone(f,0.25,'triangle',0.18,i*0.12)),
+};
+
+// ---------- menu ----------
+window.setLevel = lv => {
+  level = lv;
+  document.getElementById('lv1').classList.toggle('on', lv===1);
+  document.getElementById('lv2').classList.toggle('on', lv===2);
+};
+window.showStart = ()=>{
+  state = 'menu'; players = [];
+  document.getElementById('end').classList.add('hidden');
+  document.getElementById('start').classList.remove('hidden');
+};
+window.startGame = m => {
+  audio(); mode = m;
+  const order = [...Array(8).keys()].sort(()=>Math.random()-0.5);
+  players = mode==='solo' ? [makePlayer(0, 0, 1, order)] : [makePlayer(0, 0, 0.5, order), makePlayer(1, 0.5, 1, order)];
+  players.forEach(layoutPlayer);
+  particles = []; banner = null; state = 'countdown'; countdown = 3.999; lastBeep = 4;
+  document.getElementById('start').classList.add('hidden');
+  document.getElementById('end').classList.add('hidden');
+};
+addEventListener('keydown', e=>{
+  if (e.code === 'Space' && state === 'over') showStart();
+  if (e.code === 'Escape') showStart();
+});
+
+// ---------- players ----------
+function makePlayer(idx, f0, f1, order){
+  return {idx, f0, f1, queue:[...order], current:null, placed:Array(8).fill(false), count:0, mistakes:0, time:0, done:false,
+          hand:{x:-999,y:-999,seen:false}, pts:null, lost:0, held:false, msg:null, slots:[], base:30};
+}
+function layoutPlayer(p){
+  p.x0 = p.f0*W; p.x1 = p.f1*W;
+  const w = p.x1 - p.x0, sunW = w*0.1, gap = (w - sunW - 16)/8, y = H*0.8;
+  p.base = Math.min(gap*0.36, H*0.06);
+  p.slots = PLANETS.map((pl,i)=>({i, x: p.x0 + sunW + gap*(i+0.5), y, r: p.base*Math.max(0.75, Math.min(pl.r, 1.25))}));
+}
+function nextPlanet(p){
+  if (!p.queue.length){ p.current = null; return; }
+  const w = p.x1 - p.x0;
+  p.current = {i: p.queue.shift(), x: p.x0 + w*(0.3+Math.random()*0.4), y: -60, wob: 0, bounce: 0};
+}
+function updatePlayer(p, dt){
+  if (p.done || !p.current) return;
+  p.time += dt;
+  const c = p.current, h = p.hand;
+  if (c.bounce > 0) c.bounce -= dt;
+  if (!h.seen){ p.lost += dt; if (p.held && p.lost > 0.6) p.held = false; }
+  else {
+    p.lost = 0;
+    const R = p.base*1.3;
+    if (!p.held && c.bounce <= 0 && Math.hypot(c.x-h.x, c.y-h.y) < R*1.7){ p.held = true; sfx.grab(); }
+    if (p.held){
+      c.x += (h.x-c.x)*0.5; c.y += (h.y-c.y)*0.5;
+      c.x = Math.max(p.x0+R, Math.min(p.x1-R, c.x));
+      const s = p.slots.find(s => !p.placed[s.i] && Math.hypot(s.x-c.x, s.y-c.y) < Math.max(s.r*1.3, 40));
+      if (s) tryPlace(p, s);
+    }
+  }
+  if (!p.held){
+    c.wob += dt*2;
+    const stopY = H*0.4;
+    if (c.y < stopY) c.y = Math.min(stopY, c.y + H*0.25*dt); else c.y = stopY + Math.sin(c.wob)*12;
+  }
+}
+function tryPlace(p, s){
+  const c = p.current, pl = PLANETS[c.i];
+  p.held = false;
+  if (s.i === c.i){
+    p.placed[s.i] = true; p.count++; sfx.ok(); burst(s.x, s.y, [pl.c1, '#ffffff', P_COLORS[p.idx]], 30);
+    p.msg = {ok:true, title:`ถูกต้อง! ${pl.n} ลำดับที่ ${s.i+1}`, text: pl.f, t: mode==='solo'?3.5:2};
+    nextPlanet(p);
+    if (p.count === 8) finish(p);
+  } else {
+    p.mistakes++; sfx.bad();
+    const hint = c.i < s.i ? 'ใกล้ดวงอาทิตย์กว่านี้' : 'ไกลดวงอาทิตย์กว่านี้';
+    p.msg = {ok:false, title:`ยังไม่ใช่! ${pl.n} อยู่${hint}`, text: level===1 ? `หาช่องที่เขียนว่า "${pl.n}"` : 'ลองนับจากดวงอาทิตย์ดูอีกที', t:2.5};
+    c.y = H*0.3; c.bounce = 0.8;
+  }
+}
+function burst(x, y, colors, n){
+  for (let i=0;i<n;i++){ const a=Math.random()*Math.PI*2, v=150+Math.random()*320;
+    particles.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v-120,c:colors[i%colors.length],life:1,sq:Math.random()<0.5,rot:Math.random()*6}); }
+}
+function confetti(x0, x1){
+  const cols = ['#ff5fa2','#3fb6ff','#ffcf33','#7be39a','#ffffff','#b48cff'];
+  for (let i=0;i<220;i++) particles.push({x:x0+Math.random()*(x1-x0), y:-20-Math.random()*H*0.5, vx:(Math.random()-0.5)*120, vy:100+Math.random()*200,
+    c:cols[i%cols.length], life:3.5, sq:true, rot:Math.random()*6, slow:true});
+}
+
+// ---------- finishing ----------
+function finish(p){
+  p.done = true;
+  if (mode === 'solo'){ endSolo(p); return; }
+  endDuo(p);
+}
+function endSolo(p){
+  state = 'over'; sfx.win(); confetti(0, W);
+  const t = Math.round(p.time*10)/10;
+  const title = p.mistakes===0 ? 'นักบินอวกาศระดับตำนาน!' : p.mistakes<=3 ? 'นักสำรวจอวกาศตัวจริง!' : 'นักดาราศาสตร์ฝึกหัด!';
+  setTimeout(()=>{
+    pixelTitle(document.getElementById('endTitle'), title);
+    document.getElementById('endText').innerHTML = `เรียงครบ 8 ดวงใน <b>${t.toFixed(1)}</b> วินาที · พลาด ${p.mistakes} ครั้ง<br>` +
+      `<br><span style="font-size:.85em">จำง่าย ๆ: พุธ ศุกร์ โลก อังคาร พฤหัส เสาร์ ยูเรนัส เนปจูน</span>`;
+    document.getElementById('end').classList.remove('hidden');
+  }, 1200);
+}
+function endDuo(winner){
+  state = 'over'; sfx.win();
+  const [a, b] = players;
+  let title, w = winner;
+  if (!w){ // หมดเวลา
+    w = a.count > b.count ? a : b.count > a.count ? b : (a.mistakes < b.mistakes ? a : b.mistakes < a.mistakes ? b : null);
+  }
+  if (w){ title = `${P_NAMES[w.idx]}ชนะ!`; confetti(w.x0, w.x1); banner = {text: 'ชนะ!', p: w}; }
+  else { title = 'เสมอกัน! เก่งทั้งคู่'; confetti(0, W); }
+  setTimeout(()=>{
+    pixelTitle(document.getElementById('endTitle'), title, w ? P_COLORS[w.idx] : '#ffcf33');
+    const line = p => `<b style="color:${P_COLORS[p.idx]}">${P_NAMES[p.idx]}</b> วางได้ ${p.count}/8 ดวง · ${p.time.toFixed(1)} วิ · พลาด ${p.mistakes}`;
+    document.getElementById('endText').innerHTML = `${line(a)}<br>${line(b)}<br><span style="font-size:.85em">จำง่าย ๆ: พุธ ศุกร์ โลก อังคาร พฤหัส เสาร์ ยูเรนัส เนปจูน</span>`;
+    document.getElementById('end').classList.remove('hidden');
+  }, 2200);
+}
+
+// ---------- hand tracking ----------
+let handOK = false, landmarker = null, lastVideoTime = -1;
+addEventListener('mousemove', e=>{
+  if (handOK || !players.length) return;
+  const p = players.find(p => e.clientX >= p.x0 && e.clientX < p.x1) || players[0];
+  players.forEach(q => { if (q !== p) q.hand.seen = false; });
+  p.hand.x = e.clientX; p.hand.y = e.clientY; p.hand.seen = true;
+});
+async function initHands(){
+  try{
+    video.srcObject = await navigator.mediaDevices.getUserMedia({video:{width:1280,height:720,facingMode:'user'}});
+    await video.play();
+    statusEl.textContent = 'เปิดกล้องแล้ว กำลังโหลดตัวจับมือ...';
+    const {FilesetResolver, HandLandmarker} = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs');
+    const fs = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
+    const opts = d => ({baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task', delegate:d}, runningMode:'VIDEO', numHands:2});
+    try { landmarker = await HandLandmarker.createFromOptions(fs, opts('GPU')); }
+    catch { landmarker = await HandLandmarker.createFromOptions(fs, opts('CPU')); }
+    handOK = true;
+    statusEl.textContent = 'พร้อมเล่น! ยืนห่างกล้องประมาณ 1–1.5 เมตร แล้วยกมือขึ้น';
+  }catch(err){
+    console.error(err);
+    statusEl.textContent = 'เปิดกล้องหรือตัวจับมือไม่ได้ ตอนนี้เล่นด้วยเมาส์ได้ · ตรวจว่าอนุญาตกล้องและต่ออินเทอร์เน็ต';
+  }
+}
+const mapPt = p => ({x:(1-(0.5+(p.x-0.5)*1.4))*W, y:(0.5+(p.y-0.5)*1.4)*H});
+function trackHands(){
+  if (!handOK || video.readyState < 2 || video.currentTime === lastVideoTime) return;
+  lastVideoTime = video.currentTime;
+  const r = landmarker.detectForVideo(video, performance.now());
+  const found = (r.landmarks || []).map(L => {
+    const pts = L.map(mapPt), c = mapPt({x:(L[0].x+L[9].x)/2, y:(L[0].y+L[9].y)/2});
+    return {pts, c};
+  });
+  const assigned = players.map(()=>null);
+  if (mode === 'solo'){ if (found[0]) assigned[0] = found[0]; }
+  else for (const f of found){ const side = f.c.x < W/2 ? 0 : 1; if (!assigned[side]) assigned[side] = f; }
+  players.forEach((p,i)=>{
+    const f = assigned[i];
+    if (!f){ p.hand.seen = false; p.pts = null; return; }
+    p.pts = f.pts;
+    p.hand.x = p.hand.seen ? p.hand.x + (f.c.x-p.hand.x)*0.55 : f.c.x;
+    p.hand.y = p.hand.seen ? p.hand.y + (f.c.y-p.hand.y)*0.55 : f.c.y;
+    p.hand.seen = true;
+  });
+}
+
+// ---------- drawing ----------
+function sticker(x,y,w,h,fill,r=16,sh=6){
+  const ctx = U;
+  ctx.fillStyle='#000'; ctx.fillRect(x-4+sh,y-4+sh,w+8,h+8);
+  ctx.fillStyle='#000'; ctx.fillRect(x-8,y-8,w+16,h+16);
+  ctx.fillStyle='#fff'; ctx.fillRect(x-4,y-4,w+8,h+8);
+  ctx.fillStyle=fill; ctx.fillRect(x,y,w,h);
+}
+function label(t, x, y, size, fill='#fff', align='center'){
+  const ctx = U;
+  ctx.font = `800 ${size}px ${/^[0-9A-Za-z!?\s/.]+$/.test(t) ? '"Press Start 2P",' : ''}Kanit,Tahoma,sans-serif`; ctx.textAlign = align; ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'miter'; ctx.lineWidth = Math.max(6, size*0.28); ctx.strokeStyle = INK; ctx.strokeText(t, x, y);
+  ctx.fillStyle = fill; ctx.fillText(t, x, y);
+}
+function drawBG(t){
+  if (handOK && video.videoWidth){
+    const vw=video.videoWidth, vh=video.videoHeight, s=Math.max(W/vw,H/vh);
+    ctx.save(); ctx.translate(W,0); ctx.scale(-1,1);
+    ctx.drawImage(video,(W-vw*s)/2,(H-vh*s)/2,vw*s,vh*s); ctx.restore();
+  } else { ctx.fillStyle='#05071a'; ctx.fillRect(0,0,W,H); }
+  ctx.fillStyle='#fff';
+  for (const s of stars){ ctx.globalAlpha = Math.sin(t/500+s.p) > 0 ? 0.9 : 0.35; const z = s.s > 1.8 ? 8 : 4; ctx.fillRect(s.x*W, s.y*H*0.6, z, z); }
+  ctx.globalAlpha = 1;
+}
+function drawPlanet(i, x, y, r){
+  const p = PLANETS[i];
+  if (p.ring){ ctx.beginPath(); ctx.ellipse(x,y,r*1.9,r*0.55,-0.3,Math.PI,Math.PI*2); ctx.strokeStyle=INK; ctx.lineWidth=r*0.25+6; ctx.stroke(); ctx.strokeStyle='#e8d29a'; ctx.lineWidth=r*0.25; ctx.stroke(); }
+  ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fillStyle=p.c2; ctx.fill();
+  ctx.beginPath(); ctx.arc(x-r*0.18,y-r*0.18,r*0.78,0,Math.PI*2); ctx.fillStyle=p.c1; ctx.fill();
+  ctx.fillStyle='rgba(255,255,255,.85)'; ctx.fillRect(x-r*0.55,y-r*0.55,r*0.25,r*0.25);
+  if (p.bands || p.land){ ctx.save(); ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.clip();
+    if (p.bands){ ctx.fillStyle='rgba(150,80,30,.55)'; for(const k of [-0.45,-0.1,0.3]) ctx.fillRect(x-r,y+k*r,r*2,r*0.14); }
+    if (p.land){ ctx.fillStyle='#4caf50';
+      ctx.beginPath(); ctx.ellipse(x-r*0.3,y-r*0.2,r*0.35,r*0.25,0.5,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(x+r*0.35,y+r*0.3,r*0.3,r*0.2,-0.3,0,Math.PI*2); ctx.fill(); }
+    ctx.restore(); }
+  ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.lineWidth=Math.max(2.5,r*0.08); ctx.strokeStyle=INK; ctx.stroke();
+  if (p.ring){ ctx.beginPath(); ctx.ellipse(x,y,r*1.9,r*0.55,-0.3,0,Math.PI); ctx.strokeStyle=INK; ctx.lineWidth=r*0.25+6; ctx.stroke(); ctx.strokeStyle='#e8d29a'; ctx.lineWidth=r*0.25; ctx.stroke(); }
+}
+function drawSystem(p){
+  const sy = p.slots[0].y, sr = (p.x1-p.x0)*0.1;
+  ctx.save(); ctx.beginPath(); ctx.rect(p.x0, 0, p.x1-p.x0, H); ctx.clip();
+  const pulse = Math.sin(performance.now()/300)*sr*0.04;
+  [['#ff5a1f',1.25],['#ff9a1f',1.05],['#ffcf33',0.85],['#fff6b0',0.6]].forEach(([c,k])=>{
+    ctx.fillStyle=c; ctx.beginPath(); ctx.arc(p.x0,sy,sr*k+pulse,0,Math.PI*2); ctx.fill(); });
+  ctx.restore();
+  ctx.strokeStyle='rgba(255,255,255,.6)'; ctx.lineWidth=4; ctx.setLineDash([12,12]);
+  ctx.beginPath(); ctx.moveTo(p.x0+sr*0.6,sy); ctx.lineTo(p.x1-8,sy); ctx.stroke(); ctx.setLineDash([]);
+  const fs = Math.max(15, Math.min((p.x1-p.x0)/52, 24));
+  for (const s of p.slots){
+    if (p.placed[s.i]) drawPlanet(s.i, s.x, s.y, s.r);
+    else {
+      const c = p.current, hover = p.held && c && Math.hypot(s.x-c.x, s.y-c.y) < s.r*2.2;
+      ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,Math.PI*2);
+      ctx.fillStyle = hover ? 'rgba(255,255,255,.4)' : 'rgba(0,0,0,.4)'; ctx.fill();
+      ctx.strokeStyle='#fff'; ctx.lineWidth=8; ctx.setLineDash([12,10]); ctx.stroke(); ctx.setLineDash([]);
+      label(String(s.i+1), s.x, s.y, s.r*0.8);
+    }
+    const nm = mode==='duo' ? PLANETS[s.i].n.replace('ดาว','').replace('บดี','') : PLANETS[s.i].n;
+    const t = p.placed[s.i] || level===1 ? nm : '?';
+    label(t, s.x, s.y + s.r + fs*1.1, fs, p.placed[s.i] ? '#ffcf33' : '#fff');
+  }
+}
+function drawCurrent(p){
+  const c = p.current; if (!c) return;
+  const r = p.base*1.3*(p.held?1.12:1);
+  if (!p.held){ ctx.beginPath(); ctx.arc(c.x,c.y,r*1.35+Math.sin(c.wob*3)*4,0,Math.PI*2); ctx.strokeStyle='rgba(255,255,255,.55)'; ctx.lineWidth=3; ctx.stroke(); }
+  drawPlanet(c.i, c.x, c.y, r);
+  label(PLANETS[c.i].n, c.x, c.y - r - Math.max(18, r*0.5), Math.max(18, r*0.5));
+}
+const BONES=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+function drawHand(p){
+  if (!p.hand.seen) return;
+  const col = mode==='duo' ? P_COLORS[p.idx] : '#8fe9ff';
+  if (p.pts){
+    ctx.lineCap='round';
+    ctx.strokeStyle=INK; ctx.lineWidth=8; for (const [a,b] of BONES){ ctx.beginPath(); ctx.moveTo(p.pts[a].x,p.pts[a].y); ctx.lineTo(p.pts[b].x,p.pts[b].y); ctx.stroke(); }
+    ctx.strokeStyle=col; ctx.lineWidth=4; for (const [a,b] of BONES){ ctx.beginPath(); ctx.moveTo(p.pts[a].x,p.pts[a].y); ctx.lineTo(p.pts[b].x,p.pts[b].y); ctx.stroke(); }
+    ctx.fillStyle='#fff'; for (const q of p.pts){ ctx.beginPath(); ctx.arc(q.x,q.y,5,0,Math.PI*2); ctx.fill(); }
+  }
+  const r = Math.min(W,H)*0.045;
+  ctx.beginPath(); ctx.arc(p.hand.x,p.hand.y,r,0,Math.PI*2);
+  ctx.strokeStyle=INK; ctx.lineWidth=10; ctx.stroke();
+  ctx.strokeStyle = p.held ? '#ffcf33' : col; ctx.lineWidth=5; ctx.stroke();
+}
+function drawHUD(p, t){
+  const ctx = U;
+  const f = Math.max(18, Math.min(W,H)*0.04);
+  ctx.font = `800 ${f}px Kanit,Tahoma,sans-serif`; ctx.textBaseline='middle'; ctx.textAlign='left';
+  const txt = mode==='solo' ? `เวลา ${p.time.toFixed(1)} วิ    วางแล้ว ${p.count}/8`
+                            : `${P_NAMES[p.idx]}   ${p.count}/8`;
+  const w = ctx.measureText(txt).width + 36, x = mode==='solo' ? 16 : (p.idx===0 ? p.x0+16 : p.x1-16-w-8);
+  sticker(x, 16, w, f*1.7, mode==='duo' ? P_COLORS[p.idx] : PAPER);
+  ctx.fillStyle = mode==='duo' ? '#000' : '#fff'; ctx.fillText(txt, x+18, 16+f*0.85);
+  // แถบความคืบหน้า
+  const bw = Math.min(260, (p.x1-p.x0)*0.4), bx = mode==='solo' ? 16 : (p.idx===0 ? p.x0+16 : p.x1-16-bw-8), by = 16+f*1.7+14;
+  ctx.fillStyle='#000'; ctx.fillRect(bx-4,by-4,bw+8,22); ctx.fillStyle='#3a2f7a'; ctx.fillRect(bx,by,bw,14);
+  for (let k=0;k<p.count;k++){ ctx.fillStyle='#7be39a'; ctx.fillRect(bx+k*bw/8+2,by+2,bw/8-4,10); }
+}
+function drawDuoMiddle(){
+  const ctx = U;
+  ctx.strokeStyle='#fff'; ctx.lineWidth=4; ctx.setLineDash([14,12]);
+  ctx.beginPath(); ctx.moveTo(W/2,0); ctx.lineTo(W/2,H); ctx.stroke(); ctx.setLineDash([]);
+  const f = Math.max(16, Math.min(W,H)*0.035), remain = Math.max(0, DUO_LIMIT - playT);
+  const txt = `${Math.ceil(remain)}`, w = f*3.2;
+  sticker(W/2-w/2, 14, w, f*1.8, remain < 15 ? '#ff8e7a' : PAPER, 14);
+  ctx.font=`bold ${f*1.1}px ${FONT}`; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillStyle= remain < 15 ? '#000' : '#fff';
+  ctx.fillText(txt, W/2, 14+f*0.9);
+  label('VS', W/2, H*0.55, Math.min(W,H)*0.07, '#ffcf33');
+}
+function drawMsg(p, dt){
+  const ctx = U;
+  const m = p.msg; if (!m) return;
+  m.t -= dt; if (m.t <= 0){ p.msg = null; return; }
+  const pw = p.x1-p.x0, solo = mode==='solo';
+  const f = Math.max(18, Math.min(pw, H*1.6)*(solo?0.03:0.036));
+  const w = Math.min(pw*0.9, 950), h = solo ? f*3.3 : f*2, x = p.x0 + (pw-w)/2, y = solo ? 16+f*4 : H*0.13;
+  ctx.globalAlpha = Math.min(1, m.t*2);
+  sticker(x, y, w, h, PAPER, 18);
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.font=`bold ${f}px Kanit,Tahoma,sans-serif`; ctx.fillStyle = m.ok ? '#7be39a' : '#ff6b5e';
+  ctx.fillText(m.title, x+w/2, y + (solo ? f*1.05 : h/2), w-24);
+  if (solo){ ctx.font=`${f*0.85}px Kanit,Tahoma,sans-serif`; ctx.fillStyle='#fff'; ctx.fillText(m.text, x+w/2, y+f*2.3, w-24); }
+  ctx.globalAlpha = 1;
+}
+function drawParticles(dt){
+  for (const p of particles){
+    if (p.slow){ p.vx += (Math.random()-0.5)*40*dt; p.vy = Math.min(p.vy + 40*dt, 260); } else p.vy += 520*dt;
+    p.x += p.vx*dt; p.y += p.vy*dt; p.life -= dt*(p.slow?0.6:1.2); p.rot += dt*6;
+    ctx.globalAlpha = Math.max(0, Math.min(1, p.life)); ctx.fillStyle = p.c;
+    const z = p.slow ? 12 : 10; ctx.fillRect(Math.round(p.x/4)*4, Math.round(p.y/4)*4, z, z);
+  }
+  ctx.globalAlpha = 1; particles = particles.filter(p => p.life > 0 && p.y < H+40);
+}
+let lastBeep = 4;
+function drawCountdown(dt){
+  const ctx = U;
+  countdown -= dt;
+  const n = Math.ceil(countdown);
+  if (n !== lastBeep && n >= 1){ sfx.beep(); lastBeep = n; }
+  if (countdown <= 0){
+    if (lastBeep !== 0){ sfx.go(); lastBeep = 0; }
+    state = 'play'; playT = 0; players.forEach(nextPlanet); banner = {text:'ไป!', t:0.8};
+    return;
+  }
+  const frac = countdown - Math.floor(countdown), size = Math.min(W,H)*(0.22 + 0.08*frac);
+  label(String(n), W/2, H*0.42, size, '#ffcf33');
+  label(mode==='duo' ? 'ยืนคนละฝั่ง แล้วยกมือขึ้น!' : 'ยกมือขึ้น เตรียมตัว!', W/2, H*0.62, Math.min(W,H)*0.05);
+}
+function drawBanner(dt){
+  if (!banner || banner.p) return;
+  banner.t -= dt; if (banner.t <= 0){ banner = null; return; }
+  label(banner.text, W/2, H*0.42, Math.min(W,H)*0.25*(1+ (0.8-banner.t)*0.4), '#7be39a');
+}
+function drawWinner(){
+  if (!banner || !banner.p) return;
+  const p = banner.p, s = 1 + Math.sin(performance.now()/180)*0.06;
+  label('ชนะ!', (p.x0+p.x1)/2, H*0.42, Math.min(W,H)*0.16*s, P_COLORS[p.idx]);
+}
+
+function loop(t){
+  const dt = Math.min(0.05, (t-lastT)/1000 || 0); lastT = t;
+  trackHands(); U.clearRect(0,0,W,H); drawBG(t);
+  if (state !== 'menu' && players.length){
+    if (state === 'play'){
+      playT += dt;
+      players.forEach(p => updatePlayer(p, dt));
+      if (mode === 'duo' && playT >= DUO_LIMIT && state === 'play') endDuo(null);
+    }
+    if (mode === 'duo') drawDuoMiddle();
+    players.forEach(drawSystem);
+    if (state === 'play') players.forEach(drawCurrent);
+    players.forEach(p => drawHUD(p, t));
+    players.forEach(p => drawMsg(p, dt));
+    if (state === 'countdown') drawCountdown(dt);
+    drawBanner(dt); drawWinner();
+  }
+  drawParticles(dt);
+  players.forEach(drawHand);
+  requestAnimationFrame(loop);
+}
+window.__p = () => players;
+function pixelTitle(el, text, color='#ffcf33'){
+  const sz = 22, c = document.createElement('canvas'), x = c.getContext('2d');
+  x.font = `800 ${sz}px Kanit,Tahoma,sans-serif`;
+  c.width = Math.ceil(x.measureText(text).width) + 12; c.height = sz*1.7;
+  x.font = `800 ${sz}px Kanit,Tahoma,sans-serif`; x.textBaseline = 'middle'; x.lineJoin = 'miter';
+  x.lineWidth = 6; x.strokeStyle = '#000'; x.strokeText(text, 6, c.height/2+2);
+  x.fillStyle = color; x.fillText(text, 6, c.height/2+2);
+  const scale = Math.min(3, (Math.min(innerWidth*0.82, 820)) / c.width);
+  c.style.width = c.width*scale + 'px'; c.style.height = c.height*scale + 'px';
+  el.innerHTML = ''; el.appendChild(c);
+}
+window.pixelTitle = pixelTitle;
+document.fonts.ready.then(()=> pixelTitle(document.querySelector('#start h1'), 'เรียงดาวเคราะห์'));
+resize(); initHands(); requestAnimationFrame(loop);
+</script>
+</body>
+</html>
